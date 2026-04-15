@@ -15,5 +15,5 @@ COPY alembic ./alembic
 RUN pip install --no-cache-dir .
 RUN playwright install chromium
 
-# Run migrations then start server
-CMD alembic upgrade head && uvicorn radar.main:app --host 0.0.0.0 --port "${PORT:-8000}"
+# Run migrations then start server on Railway's injected PORT.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn radar.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
