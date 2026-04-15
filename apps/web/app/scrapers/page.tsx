@@ -10,6 +10,8 @@ const SCRAPERS = [
   { id: "mega-leiloes",     label: "Mega Leilões",      category: "Leilão" },
   { id: "caixa",            label: "Caixa (bloqueado)", category: "Banco" },
   { id: "brognoli",         label: "Brognoli",          category: "Imobiliárias" },
+  { id: "kzue",             label: "Kzue Imóveis",      category: "Imobiliárias" },
+  { id: "casamare",         label: "CasaMare",          category: "Imobiliárias" },
   { id: "chaves-na-mao",    label: "Chaves na Mão",     category: "Imobiliárias" },
   { id: "olx",              label: "OLX",               category: "Portais" },
   { id: "vivareal",         label: "Viva Real",         category: "Portais" },

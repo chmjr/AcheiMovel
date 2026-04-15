@@ -1,4 +1,5 @@
 from decimal import Decimal
+import os
 import re
 from typing import Any
 from urllib.parse import urljoin
@@ -16,8 +17,13 @@ CITY_SLUGS = {
     "palhoca": "Palhoça",
     "biguacu": "Biguaçu",
 }
-START_PATH = "/imoveis-residenciais-a-venda/sc-{city}/"
-MAX_PAGES_PER_CITY = 2
+START_PATHS = (
+    "/imoveis-residenciais-a-venda/sc-{city}/",
+    "/apartamentos-a-venda/sc-{city}/",
+    "/casas-a-venda/sc-{city}/",
+    "/terrenos-a-venda/sc-{city}/",
+)
+MAX_PAGES_PER_CATEGORY = max(1, int(os.getenv("CHAVES_PAGES_PER_CATEGORY", "1")))
 
 
 class ChavesNaMaoScraper(BaseScraper):
@@ -26,10 +32,11 @@ class ChavesNaMaoScraper(BaseScraper):
 
     async def discover(self):
         for city_slug in CITY_SLUGS:
-            for page in range(1, MAX_PAGES_PER_CITY + 1):
-                path = START_PATH.format(city=city_slug)
-                suffix = "" if page == 1 else f"?pg={page}"
-                yield urljoin(CHAVES_BASE, f"{path}{suffix}")
+            for path_template in START_PATHS:
+                for page in range(1, MAX_PAGES_PER_CATEGORY + 1):
+                    path = path_template.format(city=city_slug)
+                    suffix = "" if page == 1 else f"?pg={page}"
+                    yield urljoin(CHAVES_BASE, f"{path}{suffix}")
 
     async def parse(self, url: str) -> RawListing | None:
         return None

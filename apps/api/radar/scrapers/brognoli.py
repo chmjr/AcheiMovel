@@ -1,4 +1,5 @@
 from decimal import Decimal
+import os
 import re
 from typing import Any
 from urllib.parse import urljoin
@@ -16,6 +17,7 @@ CITY_SLUGS = {
     "palhoca": "Palhoça",
     "biguacu": "Biguaçu",
 }
+MAX_PAGES_PER_CITY = max(1, int(os.getenv("BROGNOLI_PAGES_PER_CITY", "3")))
 
 
 class BrognoliScraper(BaseScraper):
@@ -24,7 +26,8 @@ class BrognoliScraper(BaseScraper):
 
     async def discover(self):
         for city_slug in CITY_SLUGS:
-            yield f"{BROGNOLI_BASE}/comprar/cidade/{city_slug}/1/"
+            for page in range(1, MAX_PAGES_PER_CITY + 1):
+                yield f"{BROGNOLI_BASE}/comprar/cidade/{city_slug}/{page}/"
 
     async def parse(self, url: str) -> RawListing | None:
         return None

@@ -19,6 +19,7 @@ from radar.scrapers.chaves_na_mao import ChavesNaMaoScraper
 from radar.scrapers.lanceja import LanceJaScraper
 from radar.scrapers.leiloeiro_publico import LeiloeiroPublicoScraper
 from radar.scrapers.loft import LoftScraper
+from radar.scrapers.loft_partner import CasaMareScraper, KzueScraper
 from radar.scrapers.mega_leiloes import MegaLeiloesScraper
 from radar.scrapers.quintoandar import QuintoAndarScraper
 from radar.scrapers.superbid import SuperbidScraper
@@ -153,6 +154,14 @@ async def scrape_lanceja_async() -> dict[str, object]:
 
 async def scrape_loft_async() -> dict[str, object]:
     return await run_scraper_async("loft", LoftScraper())
+
+
+async def scrape_kzue_async() -> dict[str, object]:
+    return await run_scraper_async("kzue", KzueScraper())
+
+
+async def scrape_casamare_async() -> dict[str, object]:
+    return await run_scraper_async("casamare", CasaMareScraper())
 
 
 async def scrape_superbid_async() -> dict[str, object]:

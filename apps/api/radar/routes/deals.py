@@ -274,7 +274,7 @@ async def get_deal(property_id: str, db: Session = Depends(get_db)) -> dict[str,
 
     listing = _best_listing(prop)
     if not analyses and listing:
-        preliminary = _preliminary_analysis_dict(prop, listing)
+        preliminary = _preliminary_analysis_dict(prop, listing, db)
         analyses_payload = [preliminary] if preliminary else []
     else:
         analyses_payload = [
@@ -403,6 +403,7 @@ def _real_listing_items(
     category: str | None,
     property_type: str | None,
 ) -> list[DealListItem]:
+    market_rates = _market_rates(db)
     properties = (
         db.query(Property)
         .options(joinedload(Property.source_listings))
@@ -421,7 +422,7 @@ def _real_listing_items(
         listing = _best_listing(prop)
         if not listing or not listing.price:
             continue
-        item = _preliminary_item(prop, listing)
+        item = _preliminary_item(prop, listing, market_rates)
         if not item:
             continue
         if item.capital_required > max_capital or item.score < min_score:
@@ -430,7 +431,11 @@ def _real_listing_items(
     return items
 
 
-def _preliminary_item(prop: Property, listing: SourceListing) -> DealListItem | None:
+def _preliminary_item(
+    prop: Property,
+    listing: SourceListing,
+    market_rates: dict[tuple[str, str, str], Decimal],
+) -> DealListItem | None:
     if not listing.price:
         return None
 
@@ -444,7 +449,7 @@ def _preliminary_item(prop: Property, listing: SourceListing) -> DealListItem | 
     capital_required = (entry + financing_costs + transaction_costs + renovation_cost + contingency).quantize(
         Decimal("0.01")
     )
-    estimated_resale = (purchase_price * Decimal("1.30")).quantize(Decimal("0.01"))
+    estimated_market_value, estimated_resale = _estimated_values(prop, purchase_price, area, market_rates)
     selling_costs = (estimated_resale * Decimal("0.06")).quantize(Decimal("0.01"))
     total_cost = (
         purchase_price + transaction_costs + renovation_cost + selling_costs + contingency
@@ -473,7 +478,7 @@ def _preliminary_item(prop: Property, listing: SourceListing) -> DealListItem | 
         neighborhood=prop.neighborhood,
         property_type=prop.property_type,
         purchase_price=purchase_price,
-        estimated_market_value=purchase_price,
+        estimated_market_value=estimated_market_value,
         estimated_resale_value=estimated_resale,
         renovation_cost=renovation_cost,
         total_cost=total_cost,
@@ -491,8 +496,8 @@ def _preliminary_item(prop: Property, listing: SourceListing) -> DealListItem | 
     )
 
 
-def _preliminary_analysis_dict(prop: Property, listing: SourceListing) -> dict[str, Any] | None:
-    item = _preliminary_item(prop, listing)
+def _preliminary_analysis_dict(prop: Property, listing: SourceListing, db: Session) -> dict[str, Any] | None:
+    item = _preliminary_item(prop, listing, _market_rates(db))
     if not item:
         return None
     transaction_costs = (item.purchase_price * Decimal("0.045")).quantize(Decimal("0.01"))
@@ -529,6 +534,85 @@ def _preliminary_analysis_dict(prop: Property, listing: SourceListing) -> dict[s
             "dados": 10,
         },
     }
+
+
+def _market_rates(db: Session) -> dict[tuple[str, str, str], Decimal]:
+    grouped: dict[tuple[str, str, str], list[Decimal]] = {}
+    rows = (
+        db.query(Property, SourceListing)
+        .join(SourceListing, SourceListing.property_id == Property.id)
+        .filter(
+            SourceListing.is_active.is_(True),
+            SourceListing.price.isnot(None),
+            Property.area_privative.isnot(None),
+            Property.area_privative > 0,
+        )
+        .all()
+    )
+
+    for prop, listing in rows:
+        if not listing.price or not prop.area_privative:
+            continue
+        sqm = (listing.price / prop.area_privative).quantize(Decimal("0.01"))
+        keys = [
+            (_norm(prop.city), _norm(prop.neighborhood), prop.property_type),
+            (_norm(prop.city), "*", prop.property_type),
+            ("*", "*", prop.property_type),
+        ]
+        for key in keys:
+            grouped.setdefault(key, []).append(sqm)
+
+    return {key: _percentile(values, Decimal("0.65")) for key, values in grouped.items() if len(values) >= 3}
+
+
+def _estimated_values(
+    prop: Property,
+    purchase_price: Decimal,
+    area: Decimal,
+    market_rates: dict[tuple[str, str, str], Decimal],
+) -> tuple[Decimal, Decimal]:
+    rate = _lookup_rate(prop, market_rates)
+    if rate and area > 0:
+        market_value = (area * rate).quantize(Decimal("0.01"))
+        uplift = {
+            "apartamento": Decimal("1.08"),
+            "casa": Decimal("1.06"),
+            "terreno": Decimal("1.00"),
+        }.get(prop.property_type, Decimal("1.04"))
+        resale = (market_value * uplift).quantize(Decimal("0.01"))
+        return market_value, resale
+
+    fallback = {
+        "auction": Decimal("1.18"),
+        "bank_owned": Decimal("1.16"),
+        "common": Decimal("1.10"),
+    }.get(prop.category, Decimal("1.10"))
+    resale = (purchase_price * fallback).quantize(Decimal("0.01"))
+    return purchase_price, resale
+
+
+def _lookup_rate(prop: Property, rates: dict[tuple[str, str, str], Decimal]) -> Decimal | None:
+    keys = [
+        (_norm(prop.city), _norm(prop.neighborhood), prop.property_type),
+        (_norm(prop.city), "*", prop.property_type),
+        ("*", "*", prop.property_type),
+    ]
+    for key in keys:
+        if key in rates:
+            return rates[key]
+    return None
+
+
+def _percentile(values: list[Decimal], pct: Decimal) -> Decimal:
+    ordered = sorted(values)
+    if not ordered:
+        return Decimal("0")
+    index = int((len(ordered) - 1) * float(pct))
+    return ordered[index].quantize(Decimal("0.01"))
+
+
+def _norm(value: str | None) -> str:
+    return " ".join((value or "Nao informado").lower().split())
 
 
 def _renovation_estimate(area: Decimal, property_type: str) -> Decimal:

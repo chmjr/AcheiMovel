@@ -1,4 +1,5 @@
 from decimal import Decimal
+import os
 import re
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -16,7 +17,8 @@ CITY_SLUGS = {
     "palhoca": "Palhoça",
     "biguacu": "Biguaçu",
 }
-MAX_PAGES_PER_CITY = 1
+LISTING_KINDS = ("imoveis", "apartamentos", "casas")
+MAX_PAGES_PER_CATEGORY = max(1, int(os.getenv("LOFT_PAGES_PER_CATEGORY", "1")))
 
 
 class LoftScraper(BaseScraper):
@@ -25,9 +27,10 @@ class LoftScraper(BaseScraper):
 
     async def discover(self):
         for city_slug in CITY_SLUGS:
-            for page in range(1, MAX_PAGES_PER_CITY + 1):
-                suffix = "" if page == 1 else f"?pagina={page}"
-                yield f"{LOFT_BASE}/venda/imoveis/sc/{city_slug}{suffix}"
+            for kind in LISTING_KINDS:
+                for page in range(1, MAX_PAGES_PER_CATEGORY + 1):
+                    suffix = "" if page == 1 else f"?pagina={page}"
+                    yield f"{LOFT_BASE}/venda/{kind}/sc/{city_slug}{suffix}"
 
     async def parse(self, url: str) -> RawListing | None:
         return None

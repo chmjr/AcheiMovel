@@ -10,6 +10,8 @@ from radar.workers.scrape_jobs import (
     scrape_caixa_async,
     scrape_chaves_na_mao_async,
     scrape_imovelweb_async,
+    scrape_casamare_async,
+    scrape_kzue_async,
     scrape_lanceja_async,
     scrape_loft_async,
     scrape_leiloeiro_publico_async,
@@ -61,6 +63,18 @@ async def trigger_lanceja(background_tasks: BackgroundTasks) -> dict:
 async def trigger_loft(background_tasks: BackgroundTasks) -> dict:
     background_tasks.add_task(scrape_loft_async)
     return {"status": "queued", "source": "loft"}
+
+
+@router.post("/kzue/trigger")
+async def trigger_kzue(background_tasks: BackgroundTasks) -> dict:
+    background_tasks.add_task(scrape_kzue_async)
+    return {"status": "queued", "source": "kzue"}
+
+
+@router.post("/casamare/trigger")
+async def trigger_casamare(background_tasks: BackgroundTasks) -> dict:
+    background_tasks.add_task(scrape_casamare_async)
+    return {"status": "queued", "source": "casamare"}
 
 
 @router.post("/superbid/trigger")
