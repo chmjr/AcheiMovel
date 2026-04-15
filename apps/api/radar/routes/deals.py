@@ -1,3 +1,4 @@
+from collections import defaultdict
 from decimal import Decimal
 from typing import Any
 import uuid
@@ -201,8 +202,22 @@ async def list_deals(
 
     analyses = q.all()
 
-    # Fall back to demo data when the database has no real analyses yet
+    # When analyses have not been persisted yet, rank the real collected listings
+    # so the dashboard never hides live scraper results behind demo data.
     if not analyses:
+        real_items = _real_listing_items(db, min_score, max_capital, city, category)
+        if real_items:
+            _sort(real_items, order_by)
+            page = real_items[offset: offset + limit]
+            return DealListResponse(
+                items=page,
+                total=len(real_items),
+                facets={
+                    "by_category": _facet(real_items, "category"),
+                    "by_city": _facet(real_items, "city"),
+                },
+            )
+
         items = _demo_items(min_score, max_capital, city, category)
         _sort(items, order_by)
         page = items[offset: offset + limit]
@@ -250,26 +265,11 @@ async def get_deal(property_id: str, db: Session = Depends(get_db)) -> dict[str,
     )
 
     listing = _best_listing(prop)
-    return {
-        "property": {
-            "property_id": str(prop.id),
-            "title": (listing.title if listing else None) or f"{prop.property_type.title()} em {prop.neighborhood}",
-            "city": prop.city,
-            "neighborhood": prop.neighborhood,
-            "property_type": prop.property_type,
-            "category": prop.category,
-            "area_privative": str(prop.area_privative) if prop.area_privative else None,
-            "bedrooms": prop.bedrooms,
-            "bathrooms": prop.bathrooms,
-            "parking_spots": prop.parking_spots,
-            "floor": prop.floor,
-            "has_elevator": prop.has_elevator,
-            "source_name": listing.source if listing else "coleta",
-            "source_url": listing.source_url if listing else None,
-            "source_count": sum(1 for l in prop.source_listings if l.is_active),
-            "is_demo": False,
-        },
-        "analyses": [
+    if not analyses and listing:
+        preliminary = _preliminary_analysis_dict(prop, listing)
+        analyses_payload = [preliminary] if preliminary else []
+    else:
+        analyses_payload = [
             {
                 "scenario": a.scenario,
                 "financing_mode": a.financing_mode,
@@ -296,7 +296,28 @@ async def get_deal(property_id: str, db: Session = Depends(get_db)) -> dict[str,
                 "score_breakdown": a.score_breakdown or {},
             }
             for a in analyses
-        ],
+        ]
+
+    return {
+        "property": {
+            "property_id": str(prop.id),
+            "title": (listing.title if listing else None) or f"{prop.property_type.title()} em {prop.neighborhood}",
+            "city": prop.city,
+            "neighborhood": prop.neighborhood,
+            "property_type": prop.property_type,
+            "category": prop.category,
+            "area_privative": str(prop.area_privative) if prop.area_privative else None,
+            "bedrooms": prop.bedrooms,
+            "bathrooms": prop.bathrooms,
+            "parking_spots": prop.parking_spots,
+            "floor": prop.floor,
+            "has_elevator": prop.has_elevator,
+            "source_name": listing.source if listing else "coleta",
+            "source_url": listing.source_url if listing else None,
+            "source_count": sum(1 for l in prop.source_listings if l.is_active),
+            "is_demo": False,
+        },
+        "analyses": analyses_payload,
     }
 
 
@@ -364,6 +385,187 @@ def _demo_detail(property_id: str) -> dict[str, Any]:
             for a in analyses
         ],
     }
+
+
+def _real_listing_items(
+    db: Session,
+    min_score: Decimal,
+    max_capital: Decimal,
+    city: str | None,
+    category: str | None,
+) -> list[DealListItem]:
+    properties = (
+        db.query(Property)
+        .options(joinedload(Property.source_listings))
+        .join(SourceListing, SourceListing.property_id == Property.id)
+        .filter(SourceListing.is_active.is_(True), SourceListing.price.isnot(None))
+    )
+    if city:
+        properties = properties.filter(Property.city == city)
+    if category:
+        properties = properties.filter(Property.category == category)
+
+    items: list[DealListItem] = []
+    for prop in properties.distinct().all():
+        listing = _best_listing(prop)
+        if not listing or not listing.price:
+            continue
+        item = _preliminary_item(prop, listing)
+        if not item:
+            continue
+        if item.capital_required > max_capital or item.score < min_score:
+            continue
+        items.append(item)
+    return items
+
+
+def _preliminary_item(prop: Property, listing: SourceListing) -> DealListItem | None:
+    if not listing.price:
+        return None
+
+    purchase_price = listing.price
+    area = prop.area_privative or Decimal("0")
+    renovation_cost = _renovation_estimate(area, prop.property_type)
+    transaction_costs = (purchase_price * Decimal("0.045")).quantize(Decimal("0.01"))
+    financing_costs = (purchase_price * Decimal("0.04")).quantize(Decimal("0.01"))
+    entry = (purchase_price * Decimal("0.25")).quantize(Decimal("0.01"))
+    contingency = ((renovation_cost + transaction_costs) * Decimal("0.12")).quantize(Decimal("0.01"))
+    capital_required = (entry + financing_costs + transaction_costs + renovation_cost + contingency).quantize(
+        Decimal("0.01")
+    )
+    estimated_resale = (purchase_price * Decimal("1.30")).quantize(Decimal("0.01"))
+    selling_costs = (estimated_resale * Decimal("0.06")).quantize(Decimal("0.01"))
+    total_cost = (
+        purchase_price + transaction_costs + renovation_cost + selling_costs + contingency
+    ).quantize(Decimal("0.01"))
+    profit = (estimated_resale - total_cost).quantize(Decimal("0.01"))
+    margin_pct = _pct(profit, estimated_resale)
+    roi_pct = _pct(profit, capital_required)
+    annualized_roi_pct = _annualize_simple(roi_pct, 10)
+    score = _preliminary_score(prop, listing, capital_required, margin_pct)
+    decision = _preliminary_decision(score, margin_pct)
+
+    return DealListItem(
+        property_id=str(prop.id),
+        title=listing.title or f"{prop.property_type.title()} em {prop.neighborhood}",
+        score=score,
+        decision=decision,
+        category=prop.category,
+        city=prop.city,
+        neighborhood=prop.neighborhood,
+        property_type=prop.property_type,
+        purchase_price=purchase_price,
+        estimated_market_value=purchase_price,
+        estimated_resale_value=estimated_resale,
+        renovation_cost=renovation_cost,
+        total_cost=total_cost,
+        capital_required=capital_required,
+        estimated_profit=profit,
+        margin_pct=margin_pct,
+        roi_pct=roi_pct,
+        annualized_roi_pct=annualized_roi_pct,
+        estimated_months=10,
+        risk_level="medium" if prop.category in {"auction", "bank_owned"} else "low",
+        source_name=listing.source,
+        primary_source_url=listing.source_url,
+        is_demo=False,
+        source_count=sum(1 for l in prop.source_listings if l.is_active),
+    )
+
+
+def _preliminary_analysis_dict(prop: Property, listing: SourceListing) -> dict[str, Any] | None:
+    item = _preliminary_item(prop, listing)
+    if not item:
+        return None
+    transaction_costs = (item.purchase_price * Decimal("0.045")).quantize(Decimal("0.01"))
+    selling_costs = (item.estimated_resale_value * Decimal("0.06")).quantize(Decimal("0.01"))
+    contingency = ((item.renovation_cost + transaction_costs) * Decimal("0.12")).quantize(Decimal("0.01"))
+    return {
+        "scenario": "base",
+        "financing_mode": "financed",
+        "renovation_level": "medium",
+        "purchase_price": str(item.purchase_price),
+        "estimated_market_value": str(item.estimated_market_value),
+        "estimated_resale_value": str(item.estimated_resale_value),
+        "renovation_cost": str(item.renovation_cost),
+        "transaction_costs": str(transaction_costs),
+        "holding_costs": "0.00",
+        "selling_costs": str(selling_costs),
+        "contingency": str(contingency),
+        "total_cost": str(item.total_cost),
+        "capital_required": str(item.capital_required),
+        "estimated_profit": str(item.estimated_profit),
+        "margin_pct": str(item.margin_pct),
+        "roi_pct": str(item.roi_pct),
+        "annualized_roi_pct": str(item.annualized_roi_pct),
+        "estimated_months": item.estimated_months,
+        "risk_level": item.risk_level,
+        "risk_flags": ["triagem_preliminar"],
+        "score": str(item.score),
+        "decision": item.decision,
+        "score_breakdown": {
+            "capital": 35,
+            "dados": 25,
+            "preco": 25,
+            "fonte": 15,
+        },
+    }
+
+
+def _renovation_estimate(area: Decimal, property_type: str) -> Decimal:
+    if property_type == "terreno" or area <= 0:
+        return Decimal("0")
+    return (area * Decimal("850")).quantize(Decimal("0.01"))
+
+
+def _preliminary_score(
+    prop: Property,
+    listing: SourceListing,
+    capital_required: Decimal,
+    margin_pct: Decimal,
+) -> Decimal:
+    score = Decimal("50")
+    if capital_required <= Decimal("150000"):
+        score += Decimal("20")
+    elif capital_required <= Decimal("300000"):
+        score += Decimal("12")
+    if listing.price and listing.price <= Decimal("300000"):
+        score += Decimal("15")
+    elif listing.price and listing.price <= Decimal("650000"):
+        score += Decimal("8")
+    if prop.area_privative:
+        score += Decimal("8")
+    if prop.bedrooms is not None:
+        score += Decimal("4")
+    if prop.neighborhood and prop.neighborhood != "Nao informado":
+        score += Decimal("4")
+    if margin_pct >= Decimal("0"):
+        score += Decimal("4")
+    return min(score, Decimal("95")).quantize(Decimal("0.01"))
+
+
+def _preliminary_decision(score: Decimal, margin_pct: Decimal) -> str:
+    if score >= Decimal("85") and margin_pct >= Decimal("0"):
+        return "priority"
+    if score >= Decimal("70"):
+        return "analyze"
+    if score >= Decimal("50"):
+        return "monitor"
+    return "discard"
+
+
+def _pct(value: Decimal, base: Decimal) -> Decimal:
+    if base == 0:
+        return Decimal("0")
+    return (value / base * Decimal("100")).quantize(Decimal("0.01"))
+
+
+def _annualize_simple(roi_pct: Decimal, months: int) -> Decimal:
+    if months <= 0:
+        return Decimal("0")
+    roi = float(roi_pct / Decimal("100"))
+    annualized = ((1 + roi) ** (12 / months) - 1) * 100 if roi > -1 else -100
+    return Decimal(str(annualized)).quantize(Decimal("0.01"))
 
 
 _SORTERS: dict[str, Any] = {
