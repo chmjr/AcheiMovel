@@ -6,7 +6,9 @@
       "Bash(wc -l /c/AcheiMovel/apps/api/radar/scrapers/*.py)",
       "Bash(xargs grep:*)",
       "Bash(py --version)",
-      "Bash(pip --version)"
+      "Bash(pip --version)",
+      "Bash(PYTHONPATH=\"/c/AcheiMovel/apps/api:/c/AcheiMovel/apps/api/pkgs\" python -c \"from radar.routes import scrapers; print\\('scrapers OK'\\); print\\([r.path for r in scrapers.router.routes]\\)\")",
+      "Bash(python -c ':*)"
     ]
   }
 }
