@@ -1,10 +1,8 @@
-from collections import defaultdict
 from decimal import Decimal
 from typing import Any
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import asc, desc
 from sqlalchemy.orm import Session, joinedload
 
 from radar.auth import require_token
@@ -173,8 +171,14 @@ async def list_deals(
     db: Session = Depends(get_db),
     min_score: Decimal = Query(default=Decimal("50")),
     max_capital: Decimal = Query(default=Decimal("300000")),
+    min_roi: Decimal | None = Query(default=None),
+    min_margin: Decimal | None = Query(default=None),
+    min_profit: Decimal | None = Query(default=None),
     city: str | None = None,
     category: str | None = None,
+    source: str | None = None,
+    property_type: str | None = None,
+    decision: str | None = None,
     order_by: str = Query(default="score"),
     limit: int = Query(default=50, le=100),
     offset: int = Query(default=0, ge=0),
@@ -199,13 +203,16 @@ async def list_deals(
         q = q.filter(Property.city == city)
     if category:
         q = q.filter(Property.category == category)
+    if property_type:
+        q = q.filter(Property.property_type == property_type)
 
     analyses = q.all()
 
     # When analyses have not been persisted yet, rank the real collected listings
     # so the dashboard never hides live scraper results behind demo data.
     if not analyses:
-        real_items = _real_listing_items(db, min_score, max_capital, city, category)
+        real_items = _real_listing_items(db, min_score, max_capital, city, category, property_type)
+        real_items = _filter_items(real_items, min_roi, min_margin, min_profit, source, decision)
         if real_items:
             _sort(real_items, order_by)
             page = real_items[offset: offset + limit]
@@ -228,6 +235,7 @@ async def list_deals(
         )
 
     items = [_to_deal_list_item(a, a.property, _best_listing(a.property)) for a in analyses]
+    items = _filter_items(items, min_roi, min_margin, min_profit, source, decision)
     _sort(items, order_by)
     page = items[offset: offset + limit]
     return DealListResponse(
@@ -393,6 +401,7 @@ def _real_listing_items(
     max_capital: Decimal,
     city: str | None,
     category: str | None,
+    property_type: str | None,
 ) -> list[DealListItem]:
     properties = (
         db.query(Property)
@@ -404,6 +413,8 @@ def _real_listing_items(
         properties = properties.filter(Property.city == city)
     if category:
         properties = properties.filter(Property.category == category)
+    if property_type:
+        properties = properties.filter(Property.property_type == property_type)
 
     items: list[DealListItem] = []
     for prop in properties.distinct().all():
@@ -442,8 +453,15 @@ def _preliminary_item(prop: Property, listing: SourceListing) -> DealListItem | 
     margin_pct = _pct(profit, estimated_resale)
     roi_pct = _pct(profit, capital_required)
     annualized_roi_pct = _annualize_simple(roi_pct, 10)
-    score = _preliminary_score(prop, listing, capital_required, margin_pct)
-    decision = _preliminary_decision(score, margin_pct)
+    score = _preliminary_score(
+        prop,
+        listing,
+        capital_required,
+        profit,
+        margin_pct,
+        annualized_roi_pct,
+    )
+    decision = _preliminary_decision(score, profit, margin_pct, annualized_roi_pct)
 
     return DealListItem(
         property_id=str(prop.id),
@@ -504,10 +522,11 @@ def _preliminary_analysis_dict(prop: Property, listing: SourceListing) -> dict[s
         "score": str(item.score),
         "decision": item.decision,
         "score_breakdown": {
-            "capital": 35,
-            "dados": 25,
-            "preco": 25,
-            "fonte": 15,
+            "retorno": 35,
+            "margem": 25,
+            "lucro": 20,
+            "capital": 10,
+            "dados": 10,
         },
     }
 
@@ -522,36 +541,95 @@ def _preliminary_score(
     prop: Property,
     listing: SourceListing,
     capital_required: Decimal,
+    profit: Decimal,
     margin_pct: Decimal,
+    annualized_roi_pct: Decimal,
 ) -> Decimal:
-    score = Decimal("50")
-    if capital_required <= Decimal("150000"):
+    if profit <= 0 or margin_pct <= 0 or annualized_roi_pct <= 0:
+        return max(Decimal("0"), min(Decimal("45"), Decimal("30") + annualized_roi_pct / Decimal("3"))).quantize(
+            Decimal("0.01")
+        )
+
+    score = Decimal("0")
+    if annualized_roi_pct >= Decimal("80"):
+        score += Decimal("35")
+    elif annualized_roi_pct >= Decimal("50"):
+        score += Decimal("30")
+    elif annualized_roi_pct >= Decimal("30"):
+        score += Decimal("24")
+    elif annualized_roi_pct >= Decimal("15"):
+        score += Decimal("16")
+    else:
+        score += Decimal("8")
+
+    if margin_pct >= Decimal("30"):
+        score += Decimal("25")
+    elif margin_pct >= Decimal("20"):
+        score += Decimal("18")
+    elif margin_pct >= Decimal("10"):
+        score += Decimal("10")
+    else:
+        score += Decimal("4")
+
+    if profit >= Decimal("80000"):
         score += Decimal("20")
+    elif profit >= Decimal("40000"):
+        score += Decimal("13")
+    elif profit >= Decimal("15000"):
+        score += Decimal("7")
+    else:
+        score += Decimal("3")
+
+    if capital_required <= Decimal("150000"):
+        score += Decimal("10")
     elif capital_required <= Decimal("300000"):
-        score += Decimal("12")
-    if listing.price and listing.price <= Decimal("300000"):
-        score += Decimal("15")
-    elif listing.price and listing.price <= Decimal("650000"):
-        score += Decimal("8")
+        score += Decimal("6")
     if prop.area_privative:
-        score += Decimal("8")
+        score += Decimal("4")
     if prop.bedrooms is not None:
-        score += Decimal("4")
+        score += Decimal("2")
     if prop.neighborhood and prop.neighborhood != "Nao informado":
-        score += Decimal("4")
-    if margin_pct >= Decimal("0"):
-        score += Decimal("4")
-    return min(score, Decimal("95")).quantize(Decimal("0.01"))
+        score += Decimal("2")
+    return min(score, Decimal("100")).quantize(Decimal("0.01"))
 
 
-def _preliminary_decision(score: Decimal, margin_pct: Decimal) -> str:
-    if score >= Decimal("85") and margin_pct >= Decimal("0"):
+def _preliminary_decision(
+    score: Decimal,
+    profit: Decimal,
+    margin_pct: Decimal,
+    annualized_roi_pct: Decimal,
+) -> str:
+    if profit <= 0 or margin_pct <= 0 or annualized_roi_pct <= 0:
+        return "discard"
+    if score >= Decimal("85") and annualized_roi_pct >= Decimal("30"):
         return "priority"
-    if score >= Decimal("70"):
+    if score >= Decimal("70") and annualized_roi_pct >= Decimal("15"):
         return "analyze"
     if score >= Decimal("50"):
         return "monitor"
     return "discard"
+
+
+def _filter_items(
+    items: list[DealListItem],
+    min_roi: Decimal | None,
+    min_margin: Decimal | None,
+    min_profit: Decimal | None,
+    source: str | None,
+    decision: str | None,
+) -> list[DealListItem]:
+    filtered = items
+    if min_roi is not None:
+        filtered = [item for item in filtered if item.annualized_roi_pct >= min_roi]
+    if min_margin is not None:
+        filtered = [item for item in filtered if item.margin_pct >= min_margin]
+    if min_profit is not None:
+        filtered = [item for item in filtered if item.estimated_profit >= min_profit]
+    if source:
+        filtered = [item for item in filtered if item.source_name == source]
+    if decision:
+        filtered = [item for item in filtered if item.decision == decision]
+    return filtered
 
 
 def _pct(value: Decimal, base: Decimal) -> Decimal:

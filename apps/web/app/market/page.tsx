@@ -4,7 +4,7 @@ export default async function MarketPage() {
   const data = await fetchMarketStats();
 
   return (
-    <main className="min-h-screen px-6 py-8">
+    <main className="min-h-screen px-6 py-10">
       <div className="mx-auto max-w-6xl">
         <p className="text-sm font-semibold uppercase tracking-normal text-clay">Mercado</p>
         <h1 className="mt-2 text-3xl font-semibold">Estatísticas por bairro</h1>
@@ -18,7 +18,7 @@ export default async function MarketPage() {
         {data.total === 0 ? (
           <EmptyState />
         ) : (
-          <div className="mt-8 overflow-x-auto border border-moss/20 bg-white">
+          <div className="mt-8 overflow-x-auto rounded border border-moss/20 bg-white shadow-sm">
             <table className="min-w-full text-sm">
               <thead className="bg-moss text-left text-white">
                 <tr>
@@ -58,7 +58,7 @@ export default async function MarketPage() {
           </div>
         )}
 
-        <section className="mt-8 border border-moss/20 bg-white p-5">
+        <section className="mt-8 rounded border border-moss/20 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-semibold">Como interpretar</h2>
           <div className="mt-3 grid gap-4 text-sm md:grid-cols-3">
             <Info
@@ -103,7 +103,7 @@ function Info({ label, value }: { label: string; value: string }) {
 
 function EmptyState() {
   return (
-    <div className="mt-8 border border-dashed border-moss/40 bg-paper p-8 text-center">
+    <div className="mt-8 rounded border border-dashed border-moss/40 bg-paper p-8 text-center">
       <p className="text-lg font-semibold text-ink/70">Nenhuma estatística disponível</p>
       <p className="mt-2 text-sm text-ink/50">
         Acione qualquer scraper via <code className="rounded bg-moss/10 px-1">POST /api/v1/scrapers/&lt;fonte&gt;/trigger</code>

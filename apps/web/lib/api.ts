@@ -109,14 +109,26 @@ function headers() {
 export async function fetchDeals(params?: {
   min_score?: number;
   max_capital?: number;
+  min_roi?: number;
+  min_margin?: number;
+  min_profit?: number;
   city?: string;
   category?: string;
+  source?: string;
+  property_type?: string;
+  decision?: string;
   order_by?: string;
 }): Promise<DealListResponse> {
   const qs = new URLSearchParams({ min_score: String(params?.min_score ?? 50) });
   if (params?.max_capital) qs.set("max_capital", String(params.max_capital));
+  if (params?.min_roi !== undefined) qs.set("min_roi", String(params.min_roi));
+  if (params?.min_margin !== undefined) qs.set("min_margin", String(params.min_margin));
+  if (params?.min_profit !== undefined) qs.set("min_profit", String(params.min_profit));
   if (params?.city) qs.set("city", params.city);
   if (params?.category) qs.set("category", params.category);
+  if (params?.source) qs.set("source", params.source);
+  if (params?.property_type) qs.set("property_type", params.property_type);
+  if (params?.decision) qs.set("decision", params.decision);
   if (params?.order_by) qs.set("order_by", params.order_by);
 
   const response = await fetch(`${API_URL}/api/v1/deals?${qs}`, {

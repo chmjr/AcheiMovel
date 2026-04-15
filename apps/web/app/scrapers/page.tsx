@@ -57,7 +57,7 @@ export default async function ScrapersPage() {
   const [runs, backendOk] = await Promise.all([fetchRuns(), checkBackend()]);
 
   return (
-    <main className="min-h-screen px-6 py-8">
+    <main className="min-h-screen px-6 py-10">
       <div className="mx-auto max-w-5xl">
         <p className="text-sm font-semibold uppercase tracking-normal text-clay">Coleta</p>
         <h1 className="mt-2 text-3xl font-semibold">Scrapers</h1>
@@ -66,7 +66,7 @@ export default async function ScrapersPage() {
           e gera as análises financeiras automaticamente em seguida.
         </p>
 
-        <div className="mt-8">
+        <div className="mt-8 rounded border border-moss/20 bg-white/55 p-4 shadow-sm">
           <ScraperTriggers scrapers={SCRAPERS} backendOk={backendOk} />
         </div>
 
@@ -78,7 +78,7 @@ export default async function ScrapersPage() {
               Nenhuma coleta registrada ainda. Dispare um scraper acima.
             </p>
           ) : (
-            <div className="mt-4 overflow-x-auto border border-moss/20 bg-white">
+            <div className="mt-4 overflow-x-auto rounded border border-moss/20 bg-white shadow-sm">
               <table className="min-w-full text-sm">
                 <thead className="bg-moss text-left text-white">
                   <tr>

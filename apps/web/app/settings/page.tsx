@@ -1,6 +1,6 @@
 export default function SettingsPage() {
   return (
-    <main className="min-h-screen px-6 py-8">
+    <main className="min-h-screen px-6 py-10">
       <div className="mx-auto max-w-4xl">
         <h1 className="text-3xl font-semibold">Configurações</h1>
         <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -16,7 +16,7 @@ export default function SettingsPage() {
 
 function Setting({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border border-moss/20 bg-white p-4">
+    <div className="rounded border border-moss/20 bg-white p-5 shadow-sm">
       <div className="text-sm text-ink/60">{label}</div>
       <div className="mt-2 text-xl font-semibold">{value}</div>
     </div>

@@ -56,7 +56,7 @@ export function ScraperTriggers({ scrapers, backendOk }: { scrapers: Scraper[]; 
       )}
 
       {/* Full pipeline button */}
-      <div className="flex items-center gap-4 border border-moss/20 bg-white p-4">
+      <div className="flex items-center gap-4 rounded border border-moss/20 bg-white p-5 shadow-sm">
         <div className="flex-1">
           <p className="font-semibold">Analisar tudo</p>
           <p className="text-sm text-ink/60">
@@ -66,7 +66,7 @@ export function ScraperTriggers({ scrapers, backendOk }: { scrapers: Scraper[]; 
         <button
           onClick={runAnalysis}
           disabled={!backendOk || analysisPending}
-          className="shrink-0 border border-moss bg-moss px-5 py-2 text-sm font-medium text-white hover:bg-moss/90 disabled:opacity-50"
+          className="shrink-0 rounded border border-moss bg-moss px-5 py-2 text-sm font-medium text-white hover:bg-moss/90 disabled:opacity-50"
         >
           {analysisPending ? "Processando…" : "Rodar análise"}
         </button>
@@ -75,7 +75,7 @@ export function ScraperTriggers({ scrapers, backendOk }: { scrapers: Scraper[]; 
       {/* Scrapers by category */}
       {categories.map((cat) => (
         <div key={cat}>
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-ink/50">{cat}</h3>
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-normal text-ink/50">{cat}</h3>
           <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
             {scrapers
               .filter((s) => s.category === cat)
@@ -83,13 +83,13 @@ export function ScraperTriggers({ scrapers, backendOk }: { scrapers: Scraper[]; 
                 const status = statusMap[scraper.id] ?? "idle";
                 const errMsg = errorMap[scraper.id];
                 return (
-                  <div key={scraper.id} className="border border-moss/20 bg-white px-4 py-3">
+                  <div key={scraper.id} className="rounded border border-moss/20 bg-white px-4 py-3 shadow-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">{scraper.label}</span>
                       <button
                         onClick={() => trigger(scraper.id)}
                         disabled={!backendOk || status === "queued"}
-                        className={`ml-3 shrink-0 border px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
+                        className={`ml-3 shrink-0 rounded border px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
                           status === "error"
                             ? "border-red-400 text-red-600"
                             : status === "queued"
